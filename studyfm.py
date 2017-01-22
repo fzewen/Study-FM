@@ -64,17 +64,7 @@ def build_speechlet_response(output, title, reprompt_text):
         },
         'shouldEndSession': True
     }
-    
-def build_audio_stop_response():
-    return {
-        "directives": [
-            {
-                "type": "AudioPlayer.Stop"
-            }
-        ],
-        'shouldEndSession': True
-    }
-
+   
 def build_audio_stop_response():
     return {
         "directives": [
