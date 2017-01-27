@@ -1,9 +1,10 @@
+#coding=utf-8
 from __future__ import print_function
 import requests
 import json
 
 COOKIE = {'dbcl2': '"154580510:2248k2xl9dc"', 'bid': 'kuoU3VSx7Dk', 'fmNlogin': '"y"'}
-HEADERS = {"User-Agent": "Paw/2.2.5 (Macintosh; OS X/10.11.1) GCDHTTPRequest"}
+HEADERS = {"User-Agent": "Paw/2.2.5 check current song(Macintosh; OS X/10.11.1) GCDHTTPRequest"}
 PLAYLIST_ENDPOINT = "https://douban.fm/j/v2/playlist"
 TOKEN_DELIMITER = "|"
 RETRY_COUNT = 20
@@ -40,11 +41,39 @@ LOOP_OFF_LIST = [
 paused_offset = 0
 paused_token = None
 current_token = None
+current_song = None
+queue = []
 current_chanel = 0
 loop_on = False
 
 # --------------- Helpers that build all of the responses ----------------------
 
+def build_ssml_response(field, field_value, audio_link):
+    ssml = "<speak>The song's " + field + "is ";
+    if field_value:
+        ssml = ssml + field_value
+    if audio_link:
+        ssml = ssml + "<audio src='" + audio_link + "' />"
+    ssml = ssml + "</speak>"
+    return {
+        "outputSpeech": {
+            "type": "SSML",
+            "ssml": ssml
+        },
+        'card': {
+            'type': 'Simple',
+            'title': "SessionSpeechlet - " + field,
+            'content': "SessionSpeechlet - " + field
+        },
+        'reprompt': {
+            'outputSpeech': {
+                'type': 'PlainText',
+                'text': field
+            }
+        },
+        'shouldEndSession': True
+    }
+    
 def build_speechlet_response(output, title, reprompt_text):
     return {
         'outputSpeech': {
@@ -64,7 +93,7 @@ def build_speechlet_response(output, title, reprompt_text):
         },
         'shouldEndSession': True
     }
-   
+    
 def build_audio_stop_response():
     return {
         "directives": [
@@ -129,11 +158,19 @@ def requests_url(ptype, **data):
                 if 'song' not in req_json or not req_json['song']:
                     print('!!!no song get!!!')
                     return None
-                print(req_json['song'])
-                return req_json['song'][0]
+                song = req_json['song'][0]
+                print('Raw song get' + str(song))
+                if song['url'].startswith('http') and not song['url'].startswith('https'):
+                    parts = song['url'].split('http', 1)
+                    song['url'] = 'https' + parts[1]
+                print('Song to reutrn' + str(song))
+                global queue
+                queue.append(song)
+                return song
             count += 1
         except Exception, err:
             print('Request failed')
+            print(err)
             break
     return None
 
@@ -231,6 +268,23 @@ def mark(mark_request, session):
             'AudioPlayer.Play', 'REPLACE_ALL', song['sid'], song['url'], 0)["directives"]
         return build_response(response)
 
+def song_info(info_request, session):
+    if 'Info' in info_request['slots']:
+        info_field = info_request['slots']['Info']['value']
+        print('check current song')
+        if current_song:
+            info = current_song[info_field]
+            print('has current song')
+            print(info)
+            info_value = None
+            info_link = None
+            if current_chanel == CHANEL_LIST['English']:
+                info_value = info
+            elif current_chanel == CHANEL_LIST['Chinese']: 
+                info_link = "https://translate.google.com/translate_tts?ie=UTF-8&q=" + info + "&tl=zh-TW&&client=tw-ob"
+            response = build_ssml_response(info_field, info_value, info_link)
+            return build_response(response)
+            
 def handle_song_nearly_finish(token):
     if loop_on and current_token:
         return enque_current_song()
@@ -252,6 +306,10 @@ def set_paused_song(audio_request):
 def set_current_song(audio_request):
     global current_token
     current_token = audio_request['token']
+    global queue
+    global current_song
+    if len(queue) > 0:
+        current_song = queue.pop() 
     print('---current token: ' + current_token)
 
 # --------------- Events ------------------
@@ -307,6 +365,8 @@ def on_intent(intent_request, session):
         return mark(intent, session)
     elif intent_name == "PlayChanelIntent":
         return chanel(intent, session)
+    elif intent_name == "SongInfoIntent":
+        return song_info(intent, session)
     else:
         raise ValueError("Invalid intent")
     #OTHER INTENT LIKE rate & unrate
